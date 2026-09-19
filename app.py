@@ -8,7 +8,7 @@ password=st.text_input("enter password")
 type=("password")
 #login button
 if st.button('login'):
-  if username == "admin" and "password=="12345":
+  if username == "admin" and "password == "12345":
   st.success("login successfully")
   st.write(f"Hello[username},your dashboard is ready")
 else:
