@@ -1,18 +1,63 @@
 import streamlit as st
+import sqlite3
+import hashlib
 
-# पेज कॉन्फ़िगरेशन
+# ----------------- डेटाबेस सेटअप (SQLite) -----------------
+def get_connection():
+    conn = sqlite3.connect("users.db", check_same_thread=False)
+    return conn
+
+def create_table():
+    conn = get_connection()
+    c = conn.cursor()
+    # यूज़र टेबल बनाना
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# पासवर्ड को सुरक्षित (Hash) बनाने के लिए फ़ंक्शन
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def check_hashes(password, hashed_text):
+    if make_hashes(password) == hashed_text:
+        return hashed_text
+    return False
+
+# नया यूज़र ऐड करने के लिए
+def add_user(username, password):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("INSERT INTO users(username, password) VALUES (?, ?)", (username, password))
+    conn.commit()
+    conn.close()
+
+# लॉगिन चेक करने के लिए
+def login_user(username, password):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE username = ? AND password = ?", (username, password))
+    data = c.fetchall()
+    conn.close()
+    return data
+
+# टेबल इनिशियलाइज़ करें
+create_table()
+
+# ----------------- पेज कॉन्फ़िगरेशन व CSS -----------------
 st.set_page_config(
     page_title="Science Fair Portal",
     page_icon="🚀",
     layout="centered"
 )
 
-# कस्टम CSS - प्रीमियम और क्लीन लुक के लिए
 st.markdown("""
     <style>
-    .main {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-    }
     .stTextInput > div > div > input {
         border-radius: 10px;
         border: 1px solid #3b82f6;
@@ -21,62 +66,89 @@ st.markdown("""
     .stButton > button {
         width: 100%;
         border-radius: 10px;
-        height: 48px;
+        height: 46px;
         background: linear-gradient(90deg, #2563eb, #3b82f6);
         color: white;
         font-weight: 600;
         font-size: 16px;
         border: none;
-        transition: all 0.3s ease;
-    }
-    .stButton > button:hover {
-        background: linear-gradient(90deg, #1d4ed8, #2563eb);
-        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
     }
     </style>
 """, unsafe_allow_html=True)
 
-# लॉगिन स्टेट मैनेज करने के लिए session_state
+# ----------------- सेशन स्टेट -----------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
 
-# अगर लॉगिन नहीं है तो लॉगिन कार्ड दिखेगा
+# ----------------- मुख्य ऐप लॉजिक -----------------
 if not st.session_state.logged_in:
-    st.markdown("<h1 style='text-align: center; color: #60a5fa;'>🚀 Science Fair Portal</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #94a3b8;'>Please sign in to access your dashboard</p>", unsafe_allow_html=True)
-    
-    # क्लीन कार्ड कंटेनर
-    with st.container(border=True):
-        st.subheader("Login")
-        username = st.text_input("Username", placeholder="Enter your username")
-        password = st.text_input("Password", type="password", placeholder="Enter your password")
-        
-        st.write("") # थोड़ा स्पेस
-        if st.button("Sign In"):
-            if username == "admin" and password == "12345":
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.rerun()
-            else:
-                st.error("Invalid username or password. Please try again.")
+    st.markdown("<h1 style='text-align: center; color: #3b82f6;'>🚀 Science Fair Portal</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray;'>Sign in or create a new account</p>", unsafe_allow_html=True)
 
-# लॉगिन होने के बाद दिखने वाला डैशबोर्ड
+    # लॉगिन और साइन अप के लिए दो अलग-अलग टैब
+    tab_login, tab_signup = st.tabs(["🔑 Login", "📝 Sign Up"])
+
+    # टैब 1: लॉगिन
+    with tab_login:
+        with st.container(border=True):
+            st.subheader("Sign In to Your Account")
+            login_user_input = st.text_input("Username", key="login_user", placeholder="Enter username")
+            login_pass_input = st.text_input("Password", type="password", key="login_pass", placeholder="Enter password")
+            
+            st.write("")
+            if st.button("Login", key="btn_login"):
+                hashed_pass = make_hashes(login_pass_input)
+                result = login_user(login_user_input, hashed_pass)
+                
+                if result:
+                    st.session_state.logged_in = True
+                    st.session_state.username = login_user_input
+                    st.rerun()
+                else:
+                    st.error("गलत Username या Password! कृपया दोबारा जाँचें।")
+
+    # टैब 2: साइन अप (नया खाता बनाना)
+    with tab_signup:
+        with st.container(border=True):
+            st.subheader("Create a New Account")
+            new_user = st.text_input("Choose a Username", key="signup_user", placeholder="Choose username")
+            new_pass = st.text_input("Create Password", type="password", key="signup_pass", placeholder="Create password")
+            confirm_pass = st.text_input("Confirm Password", type="password", key="signup_confirm", placeholder="Confirm password")
+            
+            st.write("")
+            if st.button("Register Account", key="btn_signup"):
+                if not new_user or not new_pass:
+                    st.warning("कृपया सभी फ़ील्ड भरें!")
+                elif new_pass != confirm_pass:
+                    st.error("पासवर्ड मैच नहीं हो रहे हैं!")
+                else:
+                    try:
+                        # पासवर्ड को हैश करके डेटाबेस में सुरक्षित सेव करना
+                        add_user(new_user, make_hashes(new_pass))
+                        st.success("अकाउंट सफलतापूर्वक बन गया! अब 'Login' टैब में जाकर साइन इन करें।")
+                    except sqlite3.IntegrityError:
+                        st.error("यह Username पहले से मौजूद है। कृपया कोई दूसरा नाम चुनें।")
+
+# ----------------- लॉगिन के बाद का डैशबोर्ड -----------------
 else:
-    st.balloons() # सेलिब्रेशन एनिमेशन
-    st.title(f"Welcome, {st.session_state.username}!")
+    st.balloons()
+    st.title(f"Welcome back, {st.session_state.username}!")
     st.success("You are successfully logged in.")
     
-    # डैशबोर्ड कार्ड्स
     col1, col2 = st.columns(2)
     with col1:
-        st.metric(label="Project Status", value="Active", delta="Ready")
+        st.metric(label="Account Status", value="Verified", delta="Active")
     with col2:
-        st.metric(label="Fair Date", value="Oct 2026", delta="Upcoming")
+        st.metric(label="Portal Role", value="Participant", delta="Ready")
         
     with st.container(border=True):
-        st.write("### 📊 Project Overview")
-        st.info("Here you can display your science fair models, data charts, and project documentation.")
+        st.write("### 📊 Your Project Dashboard")
+        st.write(f"Hello *{st.session_state.username}*, your science fair workspace is active.")
         
+    st.write("")
     if st.button("Log Out"):
         st.session_state.logged_in = False
+        st.session_state.username = ""
         st.rerun()
